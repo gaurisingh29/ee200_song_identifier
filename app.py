@@ -127,7 +127,7 @@ def plot_offset_histogram(offset_hist):
 # UI
 # ----------------------------------------------------------------------
 st.title("Sonic Signatures - Song Identifier")
-st.caption("EE200 Course Project, Q3B")
+st.caption("EE200 Course Project")
 
 db, song_names = get_database()
 st.success(f"Database ready: {len(song_names)} songs indexed -> {', '.join(song_names)}")
