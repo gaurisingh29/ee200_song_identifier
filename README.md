@@ -1,4 +1,4 @@
-# EE200 Course Project — Q2 & Q3 Files
+# EE200 Course Project
 
 ## Files
 - `fingerprint.py` — core audio-fingerprinting functions (spectrogram, peak picking, hashing, database, matching). Imported by both the notebook (Q3A) and `app.py` (Q3B). Keep this file alongside both.
