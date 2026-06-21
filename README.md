@@ -1,4 +1,4 @@
-# EE200 Course Project
+# EE200 Course Project Q3 Files
 
 ## Files
 - `fingerprint.py` — core audio-fingerprinting functions (spectrogram, peak picking, hashing, database, matching). Imported by both the notebook (Q3A) and `app.py` (Q3B). Keep this file alongside both.
@@ -6,14 +6,9 @@
 - `requirements.txt` — Python packages needed.
 
 ## IMPORTANT: swap in your real data before submitting
- To use your real data, no code changes are needed:put the provided song library as `.wav` files inside
-   `data/songs/`. The notebook and the Streamlit app both
-   auto-detect this folder.
+ To use real data put the provided song library as `.wav` files inside `data/songs/`. The notebook and the Streamlit app both auto-detect this folder.
 
-If songs aren't `.wav` (e.g. `.mp3`), convert them first, e.g.
-with `ffmpeg -i song.mp3 song.wav`, or extend `fingerprint.load_wav` /
-add a librosa-based loader if you have internet access to install librosa.
-
+If songs aren't `.wav` (e.g. `.mp3`), convert them first, e.g. with `ffmpeg -i song.mp3 song.wav`, 
 ## Running the Streamlit app locally
 ```bash
 pip install -r requirements.txt
