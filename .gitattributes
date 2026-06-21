@@ -1,1 +1,2 @@
 data/songs/** filter=lfs diff=lfs merge=lfs -text
+data/songs filter=lfs diff=lfs merge=lfs -text
