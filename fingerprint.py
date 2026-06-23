@@ -1,106 +1,64 @@
 """
-fingerprint.py
+fingerprint2.py
 ----------------
-Simple "Shazam-style" audio fingerprinting
-
-Pipeline:
-    audio -> spectrogram -> local-maxima peaks -> (peak pairs -> hashes) -> database
-    query -> same pipeline -> match hashes against database -> offset histogram -> best song
-
+Core audio fingerprinting engine optimized with compact data types (uint8 for songs)
+and pre-compiled metadata lookups to prevent run-time memory sweeps.
 """
 
 import os
 import numpy as np
-from scipy import signal as sps
+import librosa
 from scipy.ndimage import maximum_filter
-from scipy.io import wavfile
 
+SR = 8000
+SONG_FOLDER = "songs"
+DB_OUTPUT_PATH = "song_database.npz"
 
-# 1. Loading audio
-
-
-def load_wav(path, target_sr=11025):
-    #Load a mono .wav file and resample to target_sr if needed. Returns (signal_float, sample_rate).
-    sr, data = wavfile.read(path)
-    if data.ndim > 1:                 # stereo -> mono
-        data = data.mean(axis=1)
-    data = data.astype(np.float64)
-    data = data / (np.max(np.abs(data)) + 1e-9)   # normalize to [-1, 1]
-
-    if sr != target_sr:
-        # simple resampling using scipy.signal.resample
-        n_new = int(len(data) * target_sr / sr)
-        data = sps.resample(data, n_new)
-        sr = target_sr
-    return data, sr
-
+def load_audio(path, target_sr=8000):
+    try:
+        data, sr = librosa.load(path, sr=target_sr, mono=True)
+        max_val = np.max(np.abs(data))
+        if max_val > 0:
+            data = data / (max_val + 1e-9)
+        return data, sr
+    except Exception as e:
+        raise RuntimeError(f"Error loading file {path}: {e}")
 
 def list_songs(folder):
-    #Return list of (name_without_ext, full_path) for .wav files in folder.
     if not os.path.isdir(folder):
         return []
-    out = []
-    for f in sorted(os.listdir(folder)):
-        if f.lower().endswith(".wav"):
-            out.append((os.path.splitext(f)[0], os.path.join(folder, f)))
-    return out
-
-
-# 2. Spectrogram
+    return [(os.path.splitext(f)[0], os.path.join(folder, f)) 
+            for f in sorted(os.listdir(folder)) if f.lower().endswith(".mp3")]
 
 def spectrogram(audio, sr, nperseg=1024, noverlap=None):
-    """Thin wrapper around scipy.signal.spectrogram.
-    Returns f (Hz), t (s), Sxx (magnitude, NOT dB)."""
     if noverlap is None:
         noverlap = nperseg // 2
-    f, t, Sxx = sps.spectrogram(audio, fs=sr, window='hann',
-                                 nperseg=nperseg, noverlap=noverlap,
-                                 mode='magnitude')
+    hop_length = nperseg - noverlap
+    stft_matrix = librosa.stft(audio, n_fft=nperseg, hop_length=hop_length, window='hann')
+    Sxx = np.abs(stft_matrix)
+    f = librosa.fft_frequencies(sr=sr, n_fft=nperseg)
+    t = librosa.frames_to_time(np.arange(Sxx.shape[1]), sr=sr, hop_length=hop_length)
     return f, t, Sxx
 
-
-# 3. Peak picking ("constellation map")
-
 def find_peaks_2d(Sxx, amp_min_db=-25, neighborhood=(20, 5)):
-    """Find local maxima in a spectrogram.
-
-    Sxx           : magnitude spectrogram (freq_bins x time_bins)
-    amp_min_db    : ignore peaks weaker than this, relative to the loudest point (dB)
-    neighborhood  : (freq_window, time_window) size of the local max filter
-
-    Returns list of (freq_bin_index, time_bin_index).
-    """
     Sxx_db = 20 * np.log10(Sxx + 1e-9)
-    Sxx_db -= Sxx_db.max()              # 0 dB = loudest point in this clip
-
+    Sxx_db -= Sxx_db.max()
     local_max = maximum_filter(Sxx_db, size=neighborhood) == Sxx_db
     above_thresh = Sxx_db > amp_min_db
-    peak_mask = local_max & above_thresh
+    freq_idx, time_idx = np.where(local_max & above_thresh)
+    return np.column_stack((freq_idx, time_idx)).astype(np.int32) if len(freq_idx) > 0 else np.empty((0, 2), dtype=np.int32)
 
-    freq_idx, time_idx = np.where(peak_mask)
-    peaks = list(zip(freq_idx, time_idx))
-    return peaks
-
-
-# ----------------------------------------------------------------------
-# 4. Hashing: pair nearby peaks
-# ----------------------------------------------------------------------
+def pack_hash(f1, f2, dt):
+    return (np.uint64(f1) << 32) | (np.uint64(f2) << 16) | np.uint64(dt)
 
 def generate_hashes(peaks, fan_out=5, min_dt=1, max_dt=50):
-    """Turn a list of (freq_idx, time_idx) peaks into hashes.
-
-    Each peak is paired with up to `fan_out` other peaks that come shortly
-    after it in time (a "target zone"), forming a hash:
-        hash_key   = (f1, f2, dt)        -- two frequencies + time gap
-        anchor_time= t1                  -- time of the FIRST peak in the pair
-
-    This is the same idea Shazam uses: a single peak is easily confused with
-    noise, but a *pair* of peaks with a specific frequency/time relationship
-    is a much more unique "fingerprint".
-    """
-    peaks = sorted(peaks, key=lambda p: p[1])   # sort by time
-    hashes = []   # list of (hash_key, anchor_time)
-
+    if len(peaks) == 0:
+        return np.empty(0, dtype=np.uint64), np.empty(0, dtype=np.int32)
+    
+    peaks = peaks[np.argsort(peaks[:, 1])]  
+    hashes = []
+    anchor_times = []
+    
     for i, (f1, t1) in enumerate(peaks):
         count = 0
         for f2, t2 in peaks[i + 1:]:
@@ -108,109 +66,122 @@ def generate_hashes(peaks, fan_out=5, min_dt=1, max_dt=50):
             if dt < min_dt:
                 continue
             if dt > max_dt:
-                break                  # peaks are time-sorted, no point going further
-            hashes.append(((f1, f2, dt), t1))
+                break
+            hashes.append(pack_hash(f1, f2, dt))
+            anchor_times.append(t1)
             count += 1
             if count >= fan_out:
                 break
-    return hashes
+                
+    return np.array(hashes, dtype=np.uint64), np.array(anchor_times, dtype=np.int32)
 
+def match_query(audio, sr, db_hashes, db_songs, db_anchors, song_names, nperseg=1024, fan_out=5):
+    _, _, Sxx = spectrogram(audio, sr, nperseg=nperseg)
+    q_peaks = find_peaks_2d(Sxx)
+    q_hashes, q_times = generate_hashes(q_peaks, fan_out=fan_out)
 
-def generate_single_peak_hashes(peaks):
-    #Alternative (weaker) fingerprint: use each peak's frequency alone as the hash key without pairing.
-    return [((f1,), t1) for (f1, t1) in peaks]
+    if len(q_hashes) == 0 or len(db_hashes) == 0:
+        return None, {}, q_peaks, 0, 0
 
+    q_sort_idx = np.argsort(q_hashes)
+    q_hashes = q_hashes[q_sort_idx]
+    q_times = q_times[q_sort_idx]
 
-# 5. Database build + matching
+    # Binary search bounds lookup via np.searchsorted to skip O(N) masks
+    left_bounds = np.searchsorted(db_hashes, q_hashes, side="left")
+    right_bounds = np.searchsorted(db_hashes, q_hashes, side="right")
 
-def build_database(songs, nperseg=1024, fan_out=5, use_pairs=True):
-    """songs: list of (name, audio, sr). Returns dict: hash_key -> list of (song_name, anchor_time)."""
-    db = {}
-    for name, audio, sr in songs:
-        f, t, Sxx = spectrogram(audio, sr, nperseg=nperseg)
+    valid_mask = right_bounds > left_bounds
+    if not np.any(valid_mask):
+        return None, {}, q_peaks, 0, 0
+
+    l_intervals = left_bounds[valid_mask]
+    r_intervals = right_bounds[valid_mask]
+    matched_q_times_base = q_times[valid_mask]
+
+    segment_lengths = r_intervals - l_intervals
+    total_matches = segment_lengths.sum()
+
+    db_indices = np.repeat(l_intervals, segment_lengths) + (
+        np.arange(total_matches) - np.repeat(np.cumsum(segment_lengths) - segment_lengths, segment_lengths)
+    )
+
+    matched_db_songs = db_songs[db_indices]
+    matched_db_anchors = db_anchors[db_indices]
+    matched_q_times = np.repeat(matched_q_times_base, segment_lengths)
+
+    offsets = matched_db_anchors - matched_q_times
+    combined_votes = (offsets.astype(np.int64) << 32) | matched_db_songs.astype(np.int64)
+    unique_keys, counts = np.unique(combined_votes, return_counts=True)
+    
+    song_scores = {}
+    best_song_name = None
+    best_score = 0
+    best_offset = 0
+
+    for key, count in zip(unique_keys, counts):
+        s_idx = int(key & 0xFFFFFFFF)
+        offset_val = int(key >> 32)
+        s_name = song_names[s_idx]
+        
+        song_scores[s_name] = max(song_scores.get(s_name, 0), count)
+        if count > best_score:
+            best_score = count
+            best_song_name = s_name
+            best_offset = offset_val
+
+    q_duration_bins = np.max(q_peaks[:, 1]) if len(q_peaks) > 0 else 0
+    return best_song_name, song_scores, q_peaks, best_offset, q_duration_bins
+
+if __name__ == "__main__":
+    print(f"Compiling structural signatures from folder: '{SONG_FOLDER}' at {SR}Hz...")
+    song_files = list_songs(SONG_FOLDER)
+    if not song_files:
+        print(f"Error: Add .mp3 assets to '{SONG_FOLDER}' before building.")
+        exit(1)
+        
+    song_names = []
+    collected_hashes = []
+    collected_songs = []
+    collected_anchors = []
+    save_payload = {}
+
+    for idx, (name, path) in enumerate(song_files):
+        print(f" -> Processing structural constellations: {name}.mp3")
+        song_names.append(name)
+        
+        audio, sr = load_audio(path, target_sr=SR)
+        _, _, Sxx = spectrogram(audio, sr)
         peaks = find_peaks_2d(Sxx)
-        hashes = generate_hashes(peaks, fan_out=fan_out) if use_pairs \
-            else generate_single_peak_hashes(peaks)
-        for h, anchor_t in hashes:
-            db.setdefault(h, []).append((name, anchor_t))
-    return db
+        
+        save_payload[f"peaks_{idx}"] = peaks
+        hashes, anchors = generate_hashes(peaks)
+        
+        if len(hashes) > 0:
+            collected_hashes.append(hashes)
+            # Optimization: Cast to np.uint8 since library has <= 256 songs
+            collected_songs.append(np.full(len(hashes), idx, dtype=np.uint8))
+            collected_anchors.append(anchors.astype(np.int32))
 
+    if collected_hashes:
+        db_hashes = np.concatenate(collected_hashes)
+        db_songs = np.concatenate(collected_songs)
+        db_anchors = np.concatenate(collected_anchors)
+        
+        sort_idx = np.argsort(db_hashes)
+        save_payload["db_hashes"] = db_hashes[sort_idx]
+        save_payload["db_songs"] = db_songs[sort_idx]
+        save_payload["db_anchors"] = db_anchors[sort_idx]
+        
+        # Optimization: Precompute global metadata to eliminate run-time array scans
+        song_hash_counts = np.bincount(db_songs, minlength=len(song_names))
+        save_payload["song_hash_counts"] = song_hash_counts.astype(np.int32)
+    else:
+        save_payload["db_hashes"] = np.empty(0, dtype=np.uint64)
+        save_payload["db_songs"] = np.empty(0, dtype=np.uint8)
+        save_payload["db_anchors"] = np.empty(0, dtype=np.int32)
+        save_payload["song_hash_counts"] = np.zeros(len(song_names), dtype=np.int32)
 
-def match_query(audio, sr, db, nperseg=1024, fan_out=5, use_pairs=True):
-    """Identify `audio` against database `db`.
-
-    Returns (best_song_name_or_None, offset_histograms_dict)
-    offset_histograms_dict[song_name] = {offset: count}, useful for plotting.
-    """
-    f, t, Sxx = spectrogram(audio, sr, nperseg=nperseg)
-    peaks = find_peaks_2d(Sxx)
-    q_hashes = generate_hashes(peaks, fan_out=fan_out) if use_pairs \
-        else generate_single_peak_hashes(peaks)
-
-    offset_counts = {}   # song_name -> {offset: count}
-    for h, q_time in q_hashes:
-        if h in db:
-            for song_name, db_time in db[h]:
-                offset = db_time - q_time     # how much the query is shifted vs. the DB track
-                offset_counts.setdefault(song_name, {})
-                offset_counts[song_name][offset] = offset_counts[song_name].get(offset, 0) + 1
-
-    best_song, best_score = None, 0
-    for song_name, hist in offset_counts.items():
-        peak_score = max(hist.values())
-        if peak_score > best_score:
-            best_score = peak_score
-            best_song = song_name
-
-    return best_song, offset_counts, peaks
-
-
-# ----------------------------------------------------------------------
-# 6. Synthetic song generator (ONLY used if you have not yet supplied the
-#    real song library handed out in the course). Lets the whole pipeline
-#    be tested end-to-end. Replace with real .wav files for submission.
-# ----------------------------------------------------------------------
-
-def make_synthetic_song(name, sr=11025, duration=6.0, seed=0):
-    """Create a simple synthetic 'melody': a sequence of tones (sine waves)
-    at different frequencies, so different synthetic songs are distinguishable,
-    just like real songs have distinguishable spectral content over time."""
-    rng = np.random.RandomState(seed)
-    n = int(sr * duration)
-    t = np.arange(n) / sr
-    audio = np.zeros(n)
-
-    note_len = sr // 2  # half-second notes
-    n_notes = n // note_len
-    base_freqs = rng.choice([220, 261, 294, 330, 392, 440, 523], size=n_notes)
-
-    for i, f0 in enumerate(base_freqs):
-        seg = slice(i * note_len, (i + 1) * note_len)
-        tt = t[seg] - t[seg][0]
-        # fundamental + a couple of harmonics, like a real instrument
-        tone = (np.sin(2 * np.pi * f0 * tt)
-                + 0.5 * np.sin(2 * np.pi * 2 * f0 * tt)
-                + 0.25 * np.sin(2 * np.pi * 3 * f0 * tt))
-        envelope = np.hanning(len(tt))     # smooth note on/off (avoids clicks)
-        audio[seg] += tone * envelope
-
-    audio = audio / (np.max(np.abs(audio)) + 1e-9)
-    return audio
-
-
-def add_noise(audio, snr_db):
-    """Add white Gaussian noise at a given SNR (dB)."""
-    sig_power = np.mean(audio ** 2)
-    noise_power = sig_power / (10 ** (snr_db / 10))
-    noise = np.random.normal(0, np.sqrt(noise_power), size=audio.shape)
-    return audio + noise
-
-
-def pitch_shift_resample(audio, sr, semitones):
-    """Crude pitch shift: resample then either pad/trim back to original length.
-    (Changes both pitch AND tempo, like the classic 'speed up a tape' trick -
-    simple, but enough to demonstrate the fingerprinting failure mode.)"""
-    factor = 2 ** (semitones / 12.0)
-    n_new = int(len(audio) / factor)
-    shifted = sps.resample(audio, n_new)
-    return shifted
+    save_payload["song_names"] = np.array(song_names, dtype=object)
+    np.savez(DB_OUTPUT_PATH, **save_payload)
+    print(f"\nSaved optimized database with {len(save_payload['db_hashes'])} hashes to '{DB_OUTPUT_PATH}'")
