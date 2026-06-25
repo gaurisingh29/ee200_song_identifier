@@ -16,98 +16,116 @@ from PIL import Image, ImageDraw
 import fingerprint as fp
 
 st.set_page_config(
-    page_title="Sonic Signatures",
+    page_title= "Melody Matcher",
     page_icon=":material/graphic_eq:",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
-# --------------------------------------------------------------------------
-# Custom theme / styling
-# --------------------------------------------------------------------------
+# long long html css design 
 st.markdown("""
 <style>
 
-    @import url('https://fonts.googleapis.com/css2?family=Sora:wght=400;600;700;800&family=Inter:wght=400;500;600&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
 
-    html, body, [class*="css"]  {
+    /* ── CSS custom properties (light mode defaults) ── */
+    :root {
+        --bg-base:        #fdf4f8;
+        --bg-surface:     #ffffff;
+        --bg-surface2:    #fef6fb;
+        --border:         #f0d6e8;
+        --border-strong:  #e0b8d4;
+        --text-primary:   #1e0a2e;
+        --text-secondary: #7a4d6a;
+        --text-muted:     #b07a9a;
+        --accent:         #6d28d9;
+        --accent-light:   #ede9fe;
+        --accent-glow:    rgba(109,40,217,0.18);
+        --tab-bg:         #f3e8f9;
+        --tab-border:     #d8b4e8;
+        --shadow-sm:      0 2px 8px rgba(109,40,217,0.07);
+        --shadow-md:      0 6px 24px rgba(109,40,217,0.10);
+    }
+
+    /* Dark mode overrides */
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --bg-base:        #110820;
+            --bg-surface:     #1c0f2e;
+            --bg-surface2:    #231240;
+            --border:         #3a1f5c;
+            --border-strong:  #5a3080;
+            --text-primary:   #f0e6ff;
+            --text-secondary: #c4a8e0;
+            --text-muted:     #8a6aaa;
+            --accent:         #a78bfa;
+            --accent-light:   #2d1b5e;
+            --accent-glow:    rgba(167,139,250,0.22);
+            --tab-bg:         #2a1650;
+            --tab-border:     #5a3090;
+            --shadow-sm:      0 2px 8px rgba(0,0,0,0.4);
+            --shadow-md:      0 6px 24px rgba(0,0,0,0.5);
+        }
+    }
+
+    /* Streamlit dark-mode class override (for in-app toggle) */
+    [data-theme="dark"] {
+        --bg-base:        #110820 !important;
+        --bg-surface:     #1c0f2e !important;
+        --bg-surface2:    #231240 !important;
+        --border:         #3a1f5c !important;
+        --border-strong:  #5a3080 !important;
+        --text-primary:   #f0e6ff !important;
+        --text-secondary: #c4a8e0 !important;
+        --text-muted:     #8a6aaa !important;
+        --accent:         #a78bfa !important;
+        --accent-light:   #2d1b5e !important;
+        --accent-glow:    rgba(167,139,250,0.22) !important;
+        --tab-bg:         #2a1650 !important;
+        --tab-border:     #5a3090 !important;
+        --shadow-sm:      0 2px 8px rgba(0,0,0,0.4) !important;
+        --shadow-md:      0 6px 24px rgba(0,0,0,0.5) !important;
+    }
+
+    html, body, [class*="css"] {
         font-family: 'Inter', sans-serif;
+        color: var(--text-primary);
     }
 
-    /* Page background */
     .stApp {
-        background: radial-gradient(circle at 10% 0%, #1b1530 0%, #0e0b1a 45%, #090713 100%);
+        background: var(--bg-base) !important;
     }
 
-    /* Hide default Streamlit chrome */
-    header[data-testid="stHeader"] {
-        background: transparent;
-    }
+    header[data-testid="stHeader"] { background: transparent; }
 
-    /* Hero banner using a local file named hero.jpg */
+    /* ── Hero banner ── */
     .hero {
         display: flex;
         flex-direction: column;
         align-items: center;
-        text-align: center;
-        padding: 3.5rem 2.4rem;
+        padding: 1rem;
         border-radius: 20px;
-        background: linear-gradient(180deg, rgba(14, 11, 26, 0.6) 0%, rgba(9, 7, 19, 0.85) 100%), url('app/static/hero.jpg'), url('hero.jpg');
-        background-size: cover;
-        background-position: center;
-        border: 1px solid rgba(255,255,255,0.08);
-        box-shadow: 0 18px 45px -20px rgba(124,58,237,0.4);
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        box-shadow: var(--shadow-md), 0 0 0 4px var(--accent-glow);
         margin-bottom: 2rem;
+        width: fit-content;
+        margin-left: auto;
+        margin-right: auto;
     }
-    .hero-title {
-        font-family: 'Helvetica', 'Helvetica Neue', Arial, sans-serif;
-        font-weight: 800;
-        font-size: 2.8rem;
-        letter-spacing: -0.02em;
-        background: linear-gradient(90deg, #f5f3ff 0%, #c4b5fd 60%, #7dd3fc 100%);
-        -webkit-background-clip: text;
-        background-clip: text;
-        color: transparent;
-        margin: 0;
-        text-align: center;
-    }
-    .hero-subtitle {
-        font-family: 'Courier New', Courier, monospace;
-        color: #b7b2cc;
-        font-size: 1.05rem;
-        margin: 0.6rem 0 0 0;
-        max-width: 680px;
-        line-height: 1.5;
-        text-align: center;
-    }
-    .hero-pill-row {
-        margin-top: 1.4rem;
-        display: flex;
-        gap: 0.6rem;
-        flex-wrap: wrap;
-        justify-content: center;
-    }
-    .hero-pill {
-        font-family: 'Inter', sans-serif;
-        font-size: 0.78rem;
-        font-weight: 600;
-        color: #ddd6fe;
-        background: rgba(14, 11, 26, 0.7);
-        border: 1px solid rgba(255,255,255,0.15);
-        padding: 0.35rem 1rem;
-        border-radius: 999px;
-        letter-spacing: 0.01em;
-        backdrop-filter: blur(4px);
+    .hero-banner-img {
+        width: 100%;
+        max-width: 650px;
+        border-radius: 12px;
+        display: block;
     }
 
-    /* Section card wrapper (legacy class kept for compatibility, real
-       styling now applied via div[class*="st-key-panelcard"] below) */
-
+    /* ── Typography ── */
     .library-track-title {
-        font-family: 'Helvetica', 'Helvetica Neue', Arial, sans-serif;
+        font-family: 'Sora', sans-serif;
         font-weight: 700;
-        font-size: 1.05rem;
-        color: #f4f2ff;
+        font-size: 1.0rem;
+        color: var(--text-primary);
         margin-bottom: 0.2rem;
         white-space: nowrap;
         overflow: hidden;
@@ -117,59 +135,56 @@ st.markdown("""
     .library-track-meta {
         font-family: 'Courier New', Courier, monospace;
         font-size: 0.82rem;
-        color: #9893ad;
+        color: var(--text-muted);
         margin-bottom: 0.5rem;
         text-align: center;
     }
-    .library-track-meta strong {
-        color: #a78bfa;
-    }
+    .library-track-meta strong { color: var(--accent); }
 
     .section-heading {
-        font-family: 'Helvetica', 'Helvetica Neue', Arial, sans-serif;
+        font-family: 'Sora', sans-serif;
         font-weight: 700;
         font-size: 1.18rem;
-        color: #f4f2ff;
+        color: var(--text-primary);
         margin-bottom: 0.15rem;
         text-align: center;
     }
     .section-caption {
         font-family: 'Courier New', Courier, monospace;
-        color: #9893ad;
+        color: var(--text-secondary);
         font-size: 0.9rem;
         margin-bottom: 1.05rem;
         text-align: center;
     }
 
-    /* Square track boxes built from real st.container(key=...) elements so
-       charts render fully nested inside the bordered tile frame */
+    /* ── Track boxes ── */
     div[class*="st-key-trackbox"] {
-        background: rgba(255,255,255,0.025) !important;
-        border: 1px solid rgba(255,255,255,0.08) !important;
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border) !important;
         border-radius: 14px !important;
         padding: 0.9rem 1rem !important;
+        box-shadow: var(--shadow-sm);
     }
-    div[class*="st-key-trackbox"] [data-testid="stVerticalBlock"] {
-        gap: 0.25rem;
-    }
+    div[class*="st-key-trackbox"] [data-testid="stVerticalBlock"] { gap: 0.25rem; }
 
-    /* Query / library panel cards built the same way for proper nesting */
+    /* ── Panel cards ── */
     div[class*="st-key-panelcard"] {
-        background: rgba(255,255,255,0.035) !important;
-        border: 1px solid rgba(255,255,255,0.08) !important;
+        background: var(--bg-surface) !important;
+        border: 1px solid var(--border) !important;
         border-radius: 16px !important;
         padding: 1.4rem 1.5rem !important;
         margin-bottom: 1.1rem;
+        box-shadow: var(--shadow-sm);
     }
 
-    /* Verdict banners */
+    /* ── Verdict banners ── */
     .verdict-match {
-        font-family: 'Helvetica', 'Helvetica Neue', Arial, sans-serif;
+        font-family: 'Sora', sans-serif;
         padding: 1.05rem 1.3rem;
         border-radius: 14px;
-        background: linear-gradient(135deg, rgba(16,185,129,0.18), rgba(16,185,129,0.05));
-        border: 1px solid rgba(16,185,129,0.4);
-        color: #d1fae5;
+        background: linear-gradient(135deg, #d1fae5, #f0fdf4);
+        border: 1px solid #10b981;
+        color: #065f46;
         font-size: 1.25rem;
         font-weight: 700;
         margin-bottom: 1rem;
@@ -182,17 +197,16 @@ st.markdown("""
         font-size: 0.78rem;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: #6ee7b7;
+        color: #047857;
         margin-bottom: 0.3rem;
-        text-align: center;
     }
     .verdict-nomatch {
-        font-family: 'Helvetica', 'Helvetica Neue', Arial, sans-serif;
+        font-family: 'Sora', sans-serif;
         padding: 1.05rem 1.3rem;
         border-radius: 14px;
-        background: linear-gradient(135deg, rgba(244,63,94,0.18), rgba(244,63,94,0.05));
-        border: 1px solid rgba(244,63,94,0.4);
-        color: #fecdd3;
+        background: linear-gradient(135deg, #fee2e2, #fef2f2);
+        border: 1px solid #ef4444;
+        color: #991b1b;
         font-size: 1.15rem;
         font-weight: 700;
         margin-bottom: 1rem;
@@ -205,78 +219,83 @@ st.markdown("""
         font-size: 0.78rem;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: #fda4af;
+        color: #b91c1c;
         margin-bottom: 0.3rem;
-        text-align: center;
     }
 
-    /* Center Aligning Nav Styling (st.segmented_control replaces st.tabs so
-       switching sections is a real, lazy rerun instead of an always-rendered tab) */
+    /* ── Segmented control (tabs) — CENTERED ── */
     div[data-testid="stSegmentedControl"] {
-        display: flex;
-        justify-content: center;
-        margin: 0 auto 1.5rem auto;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+        margin: 0 auto 1.5rem auto !important;
     }
-    div[data-testid="stSegmentedControl"] > div {
-        background: rgba(255,255,255,0.03);
-        padding: 0.35rem;
-        border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.07);
-        gap: 0.4rem;
+    div[data-testid="stSegmentedControl"] > div[role="radiogroup"] {
+        display: inline-flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        background: var(--tab-bg) !important;
+        padding: 0.35rem !important;
+        border-radius: 16px !important;
+        border: 1px solid var(--tab-border) !important;
+        gap: 0.35rem !important;
+        margin: 0 auto !important;
+        box-shadow: var(--shadow-sm);
     }
     div[data-testid="stSegmentedControl"] label {
-        font-family: 'Inter', sans-serif;
-        font-weight: 600;
-        color: #b7b2cc;
-        border-radius: 10px !important;
-        padding-left: 1.2rem;
-        padding-right: 1.2rem;
+        font-family: 'Sora', sans-serif !important;
+        font-weight: 600 !important;
+        font-size: 0.88rem !important;
+        color: var(--text-secondary) !important;
+        border-radius: 11px !important;
+        padding: 0.4rem 1.25rem !important;
+        transition: all 0.18s ease !important;
+        letter-spacing: 0.01em !important;
     }
     div[data-testid="stSegmentedControl"] label[aria-checked="true"] {
-        background: rgba(124,58,237,0.35) !important;
-        color: #f5f3ff !important;
+        background: var(--accent) !important;
+        color: #ffffff !important;
+        box-shadow: 0 3px 14px var(--accent-glow) !important;
     }
 
-    /* Metric tiles */
+    /* ── Metric tiles ── */
     div[data-testid="stMetric"] {
-        background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.09);
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
         border-radius: 14px;
         padding: 0.85rem 1rem 0.7rem 1rem;
+        box-shadow: var(--shadow-sm);
     }
-    div[data-testid="stMetricLabel"] {
-        color: #9893ad !important;
-    }
+    div[data-testid="stMetricLabel"] { color: var(--text-secondary) !important; }
     div[data-testid="stMetricValue"] {
-        color: #f4f2ff !important;
+        color: var(--text-primary) !important;
         font-family: 'Sora', sans-serif;
     }
 
-    /* File uploader */
+    /* ── File uploader ── */
     [data-testid="stFileUploaderDropzone"] {
-        background: rgba(255,255,255,0.03);
-        border: 1.5px dashed rgba(167,139,250,0.45);
+        background: var(--bg-surface2);
+        border: 1.5px dashed var(--border-strong);
         border-radius: 14px;
     }
 
-    /* Dataframe / table corners */
+    /* ── Misc ── */
     div[data-testid="stDataFrame"], div[data-testid="stTable"] {
         border-radius: 12px;
         overflow: hidden;
     }
-
-    /* Divider tweak */
-    hr {
-        border-color: rgba(255,255,255,0.08);
-    }
+    hr { border-color: var(--border); }
 
 </style>
 """, unsafe_allow_html=True)
 
-SR = 8000
+# actual application structure
+
+SR = 8000 #lower frequencies had more peaks, so trimmed out the sampling to exclude higher frequencies (to reduce size of the database)
 DB_PATH = "song_database.npz"
 
-@st.cache_resource(show_spinner="Memory-mapping optimized NumPy database file index scales...")
+@st.cache_resource(show_spinner="Memory-mapping optimized NumPy database file index scales...") #take the entire db into memory 
 def load_numpy_database():
     if not os.path.exists(DB_PATH):
         st.error(f"Missing data registry '{DB_PATH}'! Run `python fingerprint2.py` first.")
@@ -302,6 +321,8 @@ def load_query_audio(uploaded_file):
         data = data / (max_val + 1e-9)
     return data
 
+
+#calculating it from the db was a better idea than directly computing the spectrogram again 
 @st.cache_data(show_spinner=False)
 def render_track_thumbnail_png(track_idx, _peaks, width=380, height=130):
     """Pre-renders a single track's constellation as a flat, theme-colored PNG.
@@ -330,7 +351,7 @@ def render_track_thumbnail_png(track_idx, _peaks, width=380, height=130):
     img = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     r = 1.4
-    fill = (167, 139, 250, 220)  # theme violet (#a78bfa) with slight transparency
+    fill = (124, 58, 237, 220)  # theme violet (#a78bfa) with slight transparency
     for x, y in zip(xs, ys):
         draw.ellipse([x - r, y - r, x + r, y + r], fill=fill)
 
@@ -338,14 +359,15 @@ def render_track_thumbnail_png(track_idx, _peaks, width=380, height=130):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
-# --- Static Renderers: Completely Free of Interactivity, Gridlines, and Axis Labels ---
+#rendered static images rather than actual plots, so that there is no additional overhead and memory utilization
+#used vega-lite for plotting, as it was more lightweight compared to plotly and matplotlib and native streamlit plot
 def render_raw_static_scatter(df, x_col, y_col, color_col=None, height=180, size=15):
     """Generates an ultra-clean scatter block showing raw points only inside container contexts,
     themed to match the site's dark violet / cyan palette."""
     spec = {
         "padding": 0,
         "background": "transparent",
-        "mark": {"type": "circle", "size": size, "color": "#a78bfa", "opacity": 0.85},
+        "mark": {"type": "circle", "size": size, "color": "#7c3aed", "opacity": 0.85},
         "encoding": {
             "x": {
                 "field": x_col, 
@@ -371,12 +393,15 @@ def render_raw_static_scatter(df, x_col, y_col, color_col=None, height=180, size
             "legend": None,
             "scale": {
                 "domain": ["Library Track", "Matched Window"],
-                "range": ["#4c4565", "#7dd3fc"]
+                "range": ["#cbd5e1", "#0284c7"]
             }
         }
         
     st.vega_lite_chart(df, spec, use_container_width=True, height=height)
 
+
+
+#charts for the query matching display
 def render_top_matches_chart(song_scores):
     if not song_scores:
         st.info("No matches registered.")
@@ -388,7 +413,7 @@ def render_top_matches_chart(song_scores):
     st.caption("Top-5 Matching Track Distribution")
     spec = {
         "background": "transparent",
-        "mark": {"type": "bar", "color": "#a78bfa", "cornerRadiusEnd": 4},
+        "mark": {"type": "bar", "color": "#7c3aed", "cornerRadiusEnd": 4},
         "encoding": {
             "x": {"field": "Matching Votes", "type": "quantitative", "axis": {"grid": False}},
             "y": {"field": "Song Track", "type": "nominal", "sort": "-x"}
@@ -397,29 +422,33 @@ def render_top_matches_chart(song_scores):
             "view": {"stroke": "transparent", "fill": "transparent"},
             "background": "transparent",
             "axis": {
-                "labelColor": "#b7b2cc",
-                "titleColor": "#b7b2cc",
-                "domainColor": "rgba(255,255,255,0.15)",
-                "tickColor": "rgba(255,255,255,0.15)"
+                "labelColor": "#475569",
+                "titleColor": "#475569",
+                "domainColor": "rgba(0,0,0,0.15)",
+                "tickColor": "rgba(0,0,0,0.15)"
             }
         }
     }
     st.vega_lite_chart(df, spec, use_container_width=True, height=220)
 
 
-# --- Main Presentation Layers ---
-st.markdown("""
+
+import base64
+
+# function to safely load a local image and convert it to base64
+def get_b64_image(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    return ""
+
+# Encode your local header image
+img_b64 = get_b64_image("./header_image.jpg")
+
+#actual applicaton part, other than the defined function above
+st.markdown(f"""
 <div class="hero">
-    <p class="hero-title">Sonic Signatures</p>
-    <p class="hero-subtitle">
-        A Shazam-style audio fingerprinting engine built on spectral peak constellations
-        and vectorized hash matching against an indexed track library.
-    </p>
-    <div class="hero-pill-row">
-        <span class="hero-pill">Constellation Hashing</span>
-        <span class="hero-pill">Vectorized Matching</span>
-        <span class="hero-pill">Offline NumPy Index</span>
-    </div>
+    <img src="data:image/jpeg;base64,{img_b64}" class="hero-banner-img" alt="Melody Matcher Banner">
 </div>
 """, unsafe_allow_html=True)
 
@@ -427,11 +456,9 @@ db_hashes, db_songs, db_anchors, song_names, song_constellations, song_hash_coun
 
 NAV_OPTIONS = ["Single-Clip Identifier", "Batch Processing Mode", "Track Library Registry"]
 
-# st.tabs() always builds every tab's content on every rerun (switching tabs is
-# purely a frontend show/hide - Streamlit has no way to know which tab you're on).
-# A segmented control is a real widget: picking a new section triggers a rerun
-# that only executes the branch below matching that section, so the expensive
-# Library grid no longer gets rebuilt in the background while you're on another tab.
+# st.tabs() builds every tab's content on every tabswitch/rerun
+# segmented control is a real widget: picking a new section triggers a rerun
+# did this switch from traditional st.tabs() because, the regeneration library was slow
 active_tab = st.segmented_control(
     "Section",
     NAV_OPTIONS,
@@ -443,7 +470,7 @@ active_tab = st.segmented_control(
 if active_tab is None:
     active_tab = NAV_OPTIONS[0]
 
-# 1. Single-Clip Section
+# single clip section
 if active_tab == "Single-Clip Identifier":
     st.markdown("""
     <p class="section-heading">Upload a Query Clip</p>
@@ -489,7 +516,7 @@ if active_tab == "Single-Clip Identifier":
                     with st.container(border=True, key="panelcard-matches"):
                         render_top_matches_chart(song_scores)
 
-# 2. Batch Processing Section
+# batch process section
 elif active_tab == "Batch Processing Mode":
     st.markdown("""
     <p class="section-heading">Batch Identification</p>
@@ -516,10 +543,24 @@ elif active_tab == "Batch Processing Mode":
                 progress.progress((idx + 1) / len(uploaded_files))
 
             results_df = pd.DataFrame(rows, columns=["filename", "prediction"])
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.dataframe(results_df, use_container_width=True)
+            
+            st.session_state["batch_results"] = results_df
+    if "batch_results" in st.session_state:
+        df_to_show = st.session_state["batch_results"]
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.dataframe(df_to_show, use_container_width=True)
+        
+        csv_buffer = df_to_show.to_csv(index=False).encode('utf-8')
+        
+        st.download_button(
+            label="Download Results as CSV",
+            data=csv_buffer,
+            file_name="results.csv",
+            mime="text/csv",
+            use_container_width=True
+        )
 
-# 3. Track Library Registry Section - only built when actually selected
+# track library section (took a lot of effort to make it pretty and fast)
 elif active_tab == "Track Library Registry":
     st.markdown("""
     <p class="section-heading">Indexed Track Library</p>
@@ -548,8 +589,6 @@ elif active_tab == "Track Library Registry":
             associated_hashes = song_hash_counts[track_idx]
             
             with cols[next_idx]:
-                # Real container (not a raw markdown div) so the chart renders
-                # genuinely nested inside the bordered, aspect-ratio-locked square.
                 with st.container(border=True, key=f"trackbox-{track_idx}"):
                     st.markdown(
                         f'<div class="library-track-title" title="ID #{track_idx} — {name}">'
@@ -568,3 +607,11 @@ elif active_tab == "Track Library Registry":
                         st.image(thumb_png, use_container_width=True)
                     else:
                         st.info("No constellation map features array found.")
+
+## Current modules app and fingerprint are overoptimized and overengineered
+## Tried implementation using much less UI/UX, with only query processing using sqlite
+## time taken for that particular implementation was ~150-200 ms on first load
+## while this implementation, loads ~5-10 ms, though not significant for this database, when extended
+## to a larger database would perform gay would be clearly visible. 
+
+## the indexing of the current database is limited to 256 at max, as uint_8 is used for array indexing
