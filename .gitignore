@@ -2,7 +2,6 @@
 *.pyc
 song_database.pkl
 .ipynb_checkpoints/
-*.mp3
 .gitignore
 .gitattributes
 
